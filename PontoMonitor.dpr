@@ -9,7 +9,8 @@ uses
   uFrmAgendaItem in 'uFrmAgendaItem.pas' {FrmAgendaItem},
   uFrmConfig in 'uFrmConfig.pas' {FrmConfig},
   uFrmConfirmacao in 'uFrmConfirmacao.pas' {FrmConfirmacao},
-  uFrmRegistroManual in 'uFrmRegistroManual.pas' {FrmRegistroManual};
+  uFrmRegistroManual in 'uFrmRegistroManual.pas' {FrmRegistroManual},
+  uFrmAlarmeUnico in 'uFrmAlarmeUnico.pas' {FrmAlarmeUnico};
 
 {$R *.res}
 

@@ -31,7 +31,11 @@ type
     lblCardMeta: TLabel;
     lblCardFalta: TLabel;
     lblCardPrevisao: TLabel;
+    btnCriarAlarme: TButton;
     lvAgendas: TListView;
+    lvAlarmesUnicos: TListView;
+    mnuAlarmesUnicos: TPopupMenu;
+    miExcluirAlarmeUnico: TMenuItem;
     pnlRodape: TPanel;
     btnNovo: TButton;
     btnEditar: TButton;
@@ -60,6 +64,11 @@ type
     procedure btnExcluirClick(Sender: TObject);
     procedure btnConfiguracoesClick(Sender: TObject);
     procedure lvAgendasDblClick(Sender: TObject);
+    procedure btnCriarAlarmeClick(Sender: TObject);
+    procedure lvAlarmesUnicosDblClick(Sender: TObject);
+    procedure lvAlarmesUnicosMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
+    procedure miExcluirAlarmeUnicoClick(Sender: TObject);
     procedure tmrMonitorTimer(Sender: TObject);
     procedure trayIconDblClick(Sender: TObject);
     procedure miAbrirClick(Sender: TObject);
@@ -67,14 +76,22 @@ type
   private
     FSaindo: Boolean;
     FRegistros: TArray<TRegistroPonto>;
+    FPrevisaoValida: Boolean;
+    FPrevisaoDataHora: TDateTime;
+    FPrevisaoTipo: string;
     procedure CarregarGrid;
     procedure CarregarHistorico;
+    procedure CarregarAlarmesUnicos;
+    procedure EditarAlarmeUnicoSelecionado;
     function FiltroRepresentaUmDia: Boolean;
     procedure AtualizarCardTotais;
     procedure EditarRegistroSelecionado;
     procedure AbrirEdicao(AAgendaId: Integer);
     procedure VerificarBatida(AHorario: TTime; const ATipo: string; AToleranciaMin: Integer);
-    procedure DispararAlarme(const ATipo: string; AHorario: TTime);
+    procedure VerificarParBatidas(AEntradaAgenda, ASaidaAgenda: TTime;
+      const ATipoEntrada, ATipoSaida: string; AToleranciaMin: Integer);
+    procedure VerificarAlarmesUnicos(AToleranciaMin: Integer);
+    procedure DispararAlarme(const ATipo: string; AHorario: TTime; AAlarmeUnicoId: Integer = 0);
     procedure AbrirExecutavelPonto;
   end;
 
@@ -86,7 +103,7 @@ implementation
 {$R *.dfm}
 
 uses
-  uFrmAgendaItem, uFrmConfig, uFrmConfirmacao, uFrmRegistroManual;
+  uFrmAgendaItem, uFrmConfig, uFrmConfirmacao, uFrmRegistroManual, uFrmAlarmeUnico;
 
 function DiaSemanaAtual: Integer;
 begin
@@ -108,6 +125,7 @@ procedure TFrmAgenda.FormCreate(Sender: TObject);
 begin
   TPontoDB.Inicializar;
   CarregarGrid;
+  CarregarAlarmesUnicos;
   sgHistorico.Cells[0, 0] := 'Data';
   sgHistorico.Cells[1, 0] := 'Hora';
   sgHistorico.Cells[2, 0] := 'Batida';
@@ -176,6 +194,7 @@ begin
     lblCardMeta.Visible := True;
     lblCardFalta.Visible := True;
 
+    FPrevisaoValida := False;
     if ObterSessaoAberta(FRegistros, HorarioAbertura, TipoSaidaEsperado) then
     begin
       if Falta <= 0 then
@@ -186,11 +205,17 @@ begin
         Previsao := HorarioAbertura + (Falta / 24);
         lblCardPrevisao.Caption := 'Previs'#227'o ' + DescricaoTipoBatida(TipoSaidaEsperado) +
           ': ' + FormatDateTime('hh:nn', Previsao);
+        // So faz sentido oferecer "Criar alarme" quando ha um horario de
+        // verdade sugerido (nao quando a meta ja foi batida).
+        FPrevisaoValida := True;
+        FPrevisaoDataHora := Previsao;
+        FPrevisaoTipo := TipoSaidaEsperado;
       end;
       lblCardPrevisao.Visible := True;
     end
     else
       lblCardPrevisao.Visible := False;
+    btnCriarAlarme.Visible := FPrevisaoValida;
   end
   else
   begin
@@ -198,6 +223,7 @@ begin
     lblCardMeta.Visible := False;
     lblCardFalta.Visible := False;
     lblCardPrevisao.Visible := False;
+    btnCriarAlarme.Visible := False;
   end;
 end;
 
@@ -230,6 +256,100 @@ begin
   end;
 
   AtualizarCardTotais;
+end;
+
+procedure TFrmAgenda.btnCriarAlarmeClick(Sender: TObject);
+var
+  Frm: TFrmAlarmeUnico;
+begin
+  if not FPrevisaoValida then
+    Exit;
+  Frm := TFrmAlarmeUnico.Create(Self);
+  try
+    Frm.PrepararNovo(FPrevisaoDataHora, FPrevisaoTipo);
+    if Frm.ShowModal = mrOk then
+      CarregarAlarmesUnicos;
+  finally
+    Frm.Free;
+  end;
+end;
+
+procedure TFrmAgenda.CarregarAlarmesUnicos;
+var
+  Alarmes: TArray<TAlarmeUnico>;
+  A: TAlarmeUnico;
+  Item: TListItem;
+begin
+  lvAlarmesUnicos.Items.BeginUpdate;
+  try
+    lvAlarmesUnicos.Items.Clear;
+    Alarmes := TPontoDB.ListarAlarmesUnicosFuturos;
+    for A in Alarmes do
+    begin
+      Item := lvAlarmesUnicos.Items.Add;
+      Item.Caption := FormatDateTime('dd/mm/yyyy', A.DataHora);
+      Item.SubItems.Add(FormatDateTime('hh:nn', A.DataHora));
+      Item.SubItems.Add(DescricaoTipoBatida(A.TipoBatida));
+      Item.Data := Pointer(A.Id);
+    end;
+  finally
+    lvAlarmesUnicos.Items.EndUpdate;
+  end;
+end;
+
+procedure TFrmAgenda.EditarAlarmeUnicoSelecionado;
+var
+  A: TAlarmeUnico;
+  Id: Integer;
+  Frm: TFrmAlarmeUnico;
+begin
+  if not Assigned(lvAlarmesUnicos.Selected) then
+    Exit;
+  Id := Integer(lvAlarmesUnicos.Selected.Data);
+  for A in TPontoDB.ListarAlarmesUnicosFuturos do
+    if A.Id = Id then
+    begin
+      Frm := TFrmAlarmeUnico.Create(Self);
+      try
+        Frm.PrepararEdicao(A);
+        if Frm.ShowModal = mrOk then
+          CarregarAlarmesUnicos;
+      finally
+        Frm.Free;
+      end;
+      Exit;
+    end;
+end;
+
+procedure TFrmAgenda.lvAlarmesUnicosDblClick(Sender: TObject);
+begin
+  EditarAlarmeUnicoSelecionado;
+end;
+
+procedure TFrmAgenda.lvAlarmesUnicosMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+var
+  Item: TListItem;
+begin
+  if Button = mbRight then
+  begin
+    Item := lvAlarmesUnicos.GetItemAt(X, Y);
+    if Assigned(Item) then
+      Item.Selected := True;
+  end;
+end;
+
+procedure TFrmAgenda.miExcluirAlarmeUnicoClick(Sender: TObject);
+var
+  Id: Integer;
+begin
+  if not Assigned(lvAlarmesUnicos.Selected) then
+    Exit;
+  if MessageDlg('Excluir este alarme '#250'nico?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+  Id := Integer(lvAlarmesUnicos.Selected.Data);
+  TPontoDB.ExcluirAlarmeUnico(Id);
+  CarregarAlarmesUnicos;
 end;
 
 procedure TFrmAgenda.btnAdicionarManualClick(Sender: TObject);
@@ -447,9 +567,13 @@ var
   ToleranciaMin: Integer;
   TemAgendaHoje: Boolean;
 begin
-  DiaHoje := DiaSemanaAtual;
   ToleranciaMin := StrToIntDef(TPontoDB.ObterConfig(CFG_TOLERANCIA_MIN, '2'), 2);
 
+  // Alarmes avulsos sao independentes da agenda semanal - verifica sempre,
+  // mesmo em dias sem nenhuma agenda recorrente.
+  VerificarAlarmesUnicos(ToleranciaMin);
+
+  DiaHoje := DiaSemanaAtual;
   TemAgendaHoje := False;
   Agendas := TPontoDB.ListarAgendas;
   for A in Agendas do
@@ -463,18 +587,39 @@ begin
   if not TemAgendaHoje then
     Exit;
 
-  VerificarBatida(AgendaHoje.Entrada1, TIPO_ENTRADA1, ToleranciaMin);
-  VerificarBatida(AgendaHoje.Saida1, TIPO_SAIDA1, ToleranciaMin);
+  VerificarParBatidas(AgendaHoje.Entrada1, AgendaHoje.Saida1, TIPO_ENTRADA1, TIPO_SAIDA1,
+    ToleranciaMin);
   if AgendaHoje.TemSegundoPar then
-  begin
-    VerificarBatida(AgendaHoje.Entrada2, TIPO_ENTRADA2, ToleranciaMin);
-    VerificarBatida(AgendaHoje.Saida2, TIPO_SAIDA2, ToleranciaMin);
-  end;
+    VerificarParBatidas(AgendaHoje.Entrada2, AgendaHoje.Saida2, TIPO_ENTRADA2, TIPO_SAIDA2,
+      ToleranciaMin);
   if AgendaHoje.TemTerceiroPar then
-  begin
-    VerificarBatida(AgendaHoje.Entrada3, TIPO_ENTRADA3, ToleranciaMin);
-    VerificarBatida(AgendaHoje.Saida3, TIPO_SAIDA3, ToleranciaMin);
-  end;
+    VerificarParBatidas(AgendaHoje.Entrada3, AgendaHoje.Saida3, TIPO_ENTRADA3, TIPO_SAIDA3,
+      ToleranciaMin);
+end;
+
+procedure TFrmAgenda.VerificarParBatidas(AEntradaAgenda, ASaidaAgenda: TTime;
+  const ATipoEntrada, ATipoSaida: string; AToleranciaMin: Integer);
+var
+  HorarioRealEntrada: TDateTime;
+  DuracaoPadrao: Double;
+  SaidaEfetiva: TTime;
+begin
+  VerificarBatida(AEntradaAgenda, ATipoEntrada, AToleranciaMin);
+
+  // So cobra a saida depois que a entrada desse turno realmente aconteceu -
+  // e se ela atrasou (ex: dia com horario especial), a saida esperada
+  // desliza junto, usando a duracao padrao do proprio turno (vinda da
+  // agenda) como referencia. Sem isso, um turno que comeca mais tarde do
+  // que o normal fica "atrasado" pra saida antes mesmo de ter comecado.
+  if not TPontoDB.ObterHorarioBatidaHoje(ATipoEntrada, HorarioRealEntrada) then
+    Exit;
+
+  DuracaoPadrao := ASaidaAgenda - AEntradaAgenda;
+  SaidaEfetiva := Frac(HorarioRealEntrada) + DuracaoPadrao;
+  if SaidaEfetiva < ASaidaAgenda then
+    SaidaEfetiva := ASaidaAgenda; // nunca antecipa, so' atrasa se a entrada atrasou
+
+  VerificarBatida(SaidaEfetiva, ATipoSaida, AToleranciaMin);
 end;
 
 procedure TFrmAgenda.VerificarBatida(AHorario: TTime; const ATipo: string;
@@ -497,6 +642,27 @@ begin
     DispararAlarme(ATipo, AHorario);
 end;
 
+procedure TFrmAgenda.VerificarAlarmesUnicos(AToleranciaMin: Integer);
+var
+  Alarmes: TArray<TAlarmeUnico>;
+  A: TAlarmeUnico;
+  MinutosAtraso: Double;
+begin
+  // Nao reaproveita VerificarBatida aqui de proposito: alarme unico tem
+  // DATA marcada (nao so hora, pode ser um dia diferente de hoje) e "ja
+  // disparou" e' simplesmente a linha nao existir mais (apagada ao
+  // confirmar) - usar BatidaJaDisparadaHoje aqui poderia silenciar o
+  // alarme por causa de uma batida da agenda recorrente do mesmo tipo, sem
+  // nunca confirmar (e apagar) o alarme unico de verdade.
+  Alarmes := TPontoDB.ListarAlarmesUnicos;
+  for A in Alarmes do
+  begin
+    MinutosAtraso := (Now - A.DataHora) * 24 * 60;
+    if MinutosAtraso >= -AToleranciaMin then
+      DispararAlarme(A.TipoBatida, Frac(A.DataHora), A.Id);
+  end;
+end;
+
 procedure TFrmAgenda.AbrirExecutavelPonto;
 var
   Caminho: string;
@@ -508,7 +674,8 @@ begin
     ShellExecute(0, 'open', PChar(Caminho), '', '', SW_SHOWNORMAL);
 end;
 
-procedure TFrmAgenda.DispararAlarme(const ATipo: string; AHorario: TTime);
+procedure TFrmAgenda.DispararAlarme(const ATipo: string; AHorario: TTime;
+  AAlarmeUnicoId: Integer);
 var
   Frm: TFrmConfirmacao;
 begin
@@ -520,7 +687,7 @@ begin
     AbrirExecutavelPonto;
     Frm := TFrmConfirmacao.Create(Self);
     try
-      Frm.Preparar(ATipo, AHorario);
+      Frm.Preparar(ATipo, AHorario, AAlarmeUnicoId);
       Frm.ShowModal;
     finally
       Frm.Free;

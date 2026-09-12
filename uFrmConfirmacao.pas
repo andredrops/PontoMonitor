@@ -20,17 +20,20 @@ type
   private
     FTipoBatida: string;
     FConfigSom: TConfigSom;
+    FAlarmeUnicoId: Integer;
   public
-    procedure Preparar(const ATipoBatida: string; AHorario: TTime);
+    procedure Preparar(const ATipoBatida: string; AHorario: TTime; AAlarmeUnicoId: Integer = 0);
   end;
 
 implementation
 
 {$R *.dfm}
 
-procedure TFrmConfirmacao.Preparar(const ATipoBatida: string; AHorario: TTime);
+procedure TFrmConfirmacao.Preparar(const ATipoBatida: string; AHorario: TTime;
+  AAlarmeUnicoId: Integer);
 begin
   FTipoBatida := ATipoBatida;
+  FAlarmeUnicoId := AAlarmeUnicoId;
   lblMensagem.Caption := Format('Voc'#234' esqueceu de registrar:'#13#10'%s (previsto para %s)',
     [DescricaoTipoBatida(ATipoBatida), FormatDateTime('hh:nn', AHorario)]);
   // Le a configuracao do som UMA VEZ aqui - o timer do beep so reproduz o
@@ -60,6 +63,8 @@ begin
   tmrBeep.Enabled := False;
   PararAlarme;
   TPontoDB.RegistrarBatida(FTipoBatida, ORIGEM_AUTOMATICO);
+  if FAlarmeUnicoId <> 0 then
+    TPontoDB.ExcluirAlarmeUnico(FAlarmeUnicoId);
   ModalResult := mrOk;
 end;
 

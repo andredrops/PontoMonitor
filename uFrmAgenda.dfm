@@ -121,9 +121,9 @@ object FrmAgenda: TFrmAgenda
       end
       object pnlRodapeHistorico: TPanel
         Left = 0
-        Top = 371
+        Top = 343
         Width = 692
-        Height = 84
+        Height = 112
         Align = alBottom
         BevelOuter = bvNone
         TabOrder = 2
@@ -149,7 +149,7 @@ object FrmAgenda: TFrmAgenda
           Left = 412
           Top = 0
           Width = 280
-          Height = 84
+          Height = 112
           Align = alRight
           BevelInner = bvRaised
           BevelOuter = bvLowered
@@ -187,6 +187,16 @@ object FrmAgenda: TFrmAgenda
             Width = 256
             Height = 18
             Caption = 'Previs'#227'o: --:--'
+          end
+          object btnCriarAlarme: TButton
+            Left = 12
+            Top = 82
+            Width = 150
+            Height = 24
+            Caption = 'Criar alarme '#250'nico'
+            TabOrder = 0
+            Visible = False
+            OnClick = btnCriarAlarmeClick
           end
         end
       end
@@ -306,6 +316,51 @@ object FrmAgenda: TFrmAgenda
           OnClick = btnConfiguracoesClick
         end
       end
+      object pnlAlarmesUnicos: TPanel
+        Left = 0
+        Top = 295
+        Width = 632
+        Height = 130
+        Align = alBottom
+        BevelOuter = bvNone
+        TabOrder = 2
+        object lblAlarmesUnicos: TLabel
+          Left = 0
+          Top = 0
+          Width = 632
+          Height = 18
+          Align = alTop
+          Caption = 'Alarmes '#250'nicos pendentes (clique duplo edita, bot'#227'o direito exclui)'
+        end
+        object lvAlarmesUnicos: TListView
+          Left = 0
+          Top = 18
+          Width = 632
+          Height = 112
+          Align = alClient
+          Columns = <
+            item
+              Caption = 'Data'
+              Width = 100
+            end
+            item
+              Caption = 'Hora'
+              Width = 70
+            end
+            item
+              Caption = 'Tipo'
+              Width = 100
+            end>
+          GridLines = True
+          PopupMenu = mnuAlarmesUnicos
+          ReadOnly = True
+          RowSelect = True
+          TabOrder = 0
+          ViewStyle = vsReport
+          OnDblClick = lvAlarmesUnicosDblClick
+          OnMouseDown = lvAlarmesUnicosMouseDown
+        end
+      end
     end
   end
   object tmrMonitor: TTimer
@@ -341,6 +396,14 @@ object FrmAgenda: TFrmAgenda
     object miExcluirHistorico: TMenuItem
       Caption = 'Excluir registro'
       OnClick = miExcluirHistoricoClick
+    end
+  end
+  object mnuAlarmesUnicos: TPopupMenu
+    Left = 432
+    Top = 56
+    object miExcluirAlarmeUnico: TMenuItem
+      Caption = 'Excluir alarme'
+      OnClick = miExcluirAlarmeUnicoClick
     end
   end
 end

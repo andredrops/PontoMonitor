@@ -31,6 +31,15 @@ type
     Origem: string;
   end;
 
+  // Alarme avulso: dispara uma unica vez num data/hora especifico, fora da
+  // agenda semanal recorrente. Some sozinho quando confirmado (a existencia
+  // da linha JA significa "pendente" - nao precisa de flag de confirmado).
+  TAlarmeUnico = record
+    Id: Integer;
+    DataHora: TDateTime;
+    TipoBatida: string;
+  end;
+
 const
   NomeDiaSemana: array[1..7] of string = ('Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom');
 
@@ -83,12 +92,21 @@ type
     // Registro de ponto (espelho local das batidas)
     class procedure RegistrarBatida(const ATipoBatida, AOrigem: string);
     class function BatidaJaDisparadaHoje(const ATipoBatida: string): Boolean;
+    class function ObterHorarioBatidaHoje(const ATipoBatida: string; out AHorario: TDateTime): Boolean;
     class function ListarRegistros(ADataInicio, ADataFim: TDate): TArray<TRegistroPonto>;
     class procedure ExcluirRegistro(AId: Integer);
     class function InserirRegistroManual(ADataHora: TDateTime;
       const ATipoBatida, AOrigem: string): Integer;
     class procedure AtualizarRegistro(AId: Integer; ADataHora: TDateTime;
       const ATipoBatida, AOrigem: string);
+
+    // Alarmes avulsos (unicos, fora da agenda semanal)
+    class function ListarAlarmesUnicos: TArray<TAlarmeUnico>;
+    class function ListarAlarmesUnicosFuturos: TArray<TAlarmeUnico>;
+    class function InserirAlarmeUnico(ADataHora: TDateTime; const ATipoBatida: string): Integer;
+    class procedure AtualizarAlarmeUnico(AId: Integer; ADataHora: TDateTime;
+      const ATipoBatida: string);
+    class procedure ExcluirAlarmeUnico(AId: Integer);
   end;
 
 implementation
@@ -383,6 +401,13 @@ begin
     '  chave TEXT PRIMARY KEY,' +
     '  valor TEXT' +
     ')');
+
+  FConexao.ExecSQL(
+    'CREATE TABLE IF NOT EXISTS alarme_unico (' +
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+    '  data_hora TEXT NOT NULL,' +
+    '  tipo_batida TEXT NOT NULL' +
+    ')');
 end;
 
 class function TPontoDB.ListarAgendas: TArray<TAgenda>;
@@ -672,6 +697,27 @@ begin
   end;
 end;
 
+class function TPontoDB.ObterHorarioBatidaHoje(const ATipoBatida: string;
+  out AHorario: TDateTime): Boolean;
+var
+  Qry: TFDQuery;
+begin
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Conexao;
+    Qry.Open(
+      'SELECT data_hora FROM registro_ponto ' +
+      'WHERE tipo_batida = :tipo AND date(data_hora) = date(''now'', ''localtime'') ' +
+      'ORDER BY data_hora DESC LIMIT 1',
+      [ATipoBatida]);
+    Result := not Qry.IsEmpty;
+    if Result then
+      AHorario := DataHoraISOParaDateTime(Qry.FieldByName('data_hora').AsString);
+  finally
+    Qry.Free;
+  end;
+end;
+
 class function TPontoDB.ListarRegistros(ADataInicio, ADataFim: TDate): TArray<TRegistroPonto>;
 var
   Qry: TFDQuery;
@@ -725,6 +771,71 @@ begin
     'UPDATE registro_ponto SET data_hora = :data_hora, tipo_batida = :tipo, origem = :origem ' +
     'WHERE id = :id',
     [FormatDateTime('yyyy-mm-dd hh:nn:ss', ADataHora), ATipoBatida, AOrigem, AId]);
+end;
+
+class function TPontoDB.ListarAlarmesUnicos: TArray<TAlarmeUnico>;
+var
+  Qry: TFDQuery;
+  Lista: TList<TAlarmeUnico>;
+  A: TAlarmeUnico;
+begin
+  Lista := TList<TAlarmeUnico>.Create;
+  Qry := TFDQuery.Create(nil);
+  try
+    Qry.Connection := Conexao;
+    Qry.Open('SELECT id, data_hora, tipo_batida FROM alarme_unico ORDER BY data_hora');
+    while not Qry.Eof do
+    begin
+      A.Id := Qry.FieldByName('id').AsInteger;
+      A.DataHora := DataHoraISOParaDateTime(Qry.FieldByName('data_hora').AsString);
+      A.TipoBatida := Qry.FieldByName('tipo_batida').AsString;
+      Lista.Add(A);
+      Qry.Next;
+    end;
+    Result := Lista.ToArray;
+  finally
+    Qry.Free;
+    Lista.Free;
+  end;
+end;
+
+class function TPontoDB.ListarAlarmesUnicosFuturos: TArray<TAlarmeUnico>;
+var
+  Todos: TArray<TAlarmeUnico>;
+  Lista: TList<TAlarmeUnico>;
+  A: TAlarmeUnico;
+begin
+  Lista := TList<TAlarmeUnico>.Create;
+  try
+    Todos := ListarAlarmesUnicos;
+    for A in Todos do
+      if A.DataHora > Now then
+        Lista.Add(A);
+    Result := Lista.ToArray;
+  finally
+    Lista.Free;
+  end;
+end;
+
+class function TPontoDB.InserirAlarmeUnico(ADataHora: TDateTime; const ATipoBatida: string): Integer;
+begin
+  Conexao.ExecSQL(
+    'INSERT INTO alarme_unico (data_hora, tipo_batida) VALUES (:data_hora, :tipo)',
+    [FormatDateTime('yyyy-mm-dd hh:nn:ss', ADataHora), ATipoBatida]);
+  Result := Conexao.GetLastAutoGenValue('alarme_unico');
+end;
+
+class procedure TPontoDB.AtualizarAlarmeUnico(AId: Integer; ADataHora: TDateTime;
+  const ATipoBatida: string);
+begin
+  Conexao.ExecSQL(
+    'UPDATE alarme_unico SET data_hora = :data_hora, tipo_batida = :tipo WHERE id = :id',
+    [FormatDateTime('yyyy-mm-dd hh:nn:ss', ADataHora), ATipoBatida, AId]);
+end;
+
+class procedure TPontoDB.ExcluirAlarmeUnico(AId: Integer);
+begin
+  Conexao.ExecSQL('DELETE FROM alarme_unico WHERE id = :id', [AId]);
 end;
 
 end.
