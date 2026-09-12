@@ -14,6 +14,7 @@ object FrmConfig: TFrmConfig
   OldCreateOrder = False
   Position = poScreenCenter
   OnCreate = FormCreate
+  OnClose = FormClose
   PixelsPerInch = 96
   TextHeight = 15
   object chkExecutarPrograma: TCheckBox
@@ -167,5 +168,12 @@ object FrmConfig: TFrmConfig
     Title = 'Selecione o som do alarme'
     Left = 360
     Top = 56
+  end
+  object tmrTestarSom: TTimer
+    Enabled = False
+    Interval = 1500
+    OnTimer = tmrTestarSomTimer
+    Left = 360
+    Top = 96
   end
 end

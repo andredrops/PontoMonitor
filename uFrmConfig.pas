@@ -45,16 +45,22 @@ type
     btnFechar: TButton;
     dlgAbrirExe: TOpenDialog;
     dlgAbrirMp3: TOpenDialog;
+    tmrTestarSom: TTimer;
     procedure FormCreate(Sender: TObject);
+    procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure chkExecutarProgramaClick(Sender: TObject);
     procedure btnProcurarExeClick(Sender: TObject);
     procedure btnProcurarMp3Click(Sender: TObject);
     procedure cbSomChange(Sender: TObject);
     procedure btnTestarSomClick(Sender: TObject);
+    procedure tmrTestarSomTimer(Sender: TObject);
     procedure btnSalvarClick(Sender: TObject);
   private
+    FTestandoSom: Boolean;
+    FConfigSomTeste: TConfigSom;
     procedure AtualizarCamposMp3;
     procedure AtualizarCamposExe;
+    procedure PararTesteSom;
   end;
 
 implementation
@@ -129,6 +135,13 @@ begin
   AtualizarCamposMp3;
 end;
 
+procedure TFrmConfig.FormClose(Sender: TObject; var Action: TCloseAction);
+begin
+  // Garante que nao fique tocando (mp3, principalmente) depois que a tela
+  // fechar, seja por Salvar, Fechar ou pelo X da janela.
+  PararTesteSom;
+end;
+
 procedure TFrmConfig.AtualizarCamposExe;
 begin
   edtCaminhoExe.Enabled := chkExecutarPrograma.Checked;
@@ -170,16 +183,44 @@ begin
     edtSomMp3.Text := dlgAbrirMp3.FileName;
 end;
 
+procedure TFrmConfig.PararTesteSom;
+begin
+  if not FTestandoSom then
+    Exit;
+  tmrTestarSom.Enabled := False;
+  PararAlarme;
+  FTestandoSom := False;
+  btnTestarSom.Caption := 'Testar som';
+end;
+
 procedure TFrmConfig.btnTestarSomClick(Sender: TObject);
 begin
+  if FTestandoSom then
+  begin
+    PararTesteSom;
+    Exit;
+  end;
+
   if (cbSom.ItemIndex = 4) and (edtSomMp3.Text = '') then
   begin
     ShowMessage('Selecione um arquivo MP3 primeiro.');
     Exit;
   end;
-  TPontoDB.SalvarConfig(CFG_SOM_ALARME, IndiceComboSom[cbSom.ItemIndex]);
-  TPontoDB.SalvarConfig(CFG_SOM_MP3_CAMINHO, edtSomMp3.Text);
-  TocarAlarme;
+
+  // So usa os valores atuais da tela (ainda nao necessariamente salvos) -
+  // nao precisa gravar no banco so pra testar o som.
+  FConfigSomTeste.Chave := IndiceComboSom[cbSom.ItemIndex];
+  FConfigSomTeste.CaminhoMp3 := edtSomMp3.Text;
+
+  FTestandoSom := True;
+  btnTestarSom.Caption := 'Parar som';
+  IniciarAlarme(FConfigSomTeste);
+  tmrTestarSom.Enabled := True;
+end;
+
+procedure TFrmConfig.tmrTestarSomTimer(Sender: TObject);
+begin
+  ContinuarAlarme(FConfigSomTeste);
 end;
 
 procedure TFrmConfig.btnSalvarClick(Sender: TObject);
